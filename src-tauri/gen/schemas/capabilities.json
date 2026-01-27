@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capabilities for WhisperTray","local":true,"windows":["main","recording"],"permissions":["core:default","shell:allow-open","dialog:default","fs:default","clipboard-manager:default","global-shortcut:allow-register","global-shortcut:allow-unregister","global-shortcut:allow-is-registered"]}}
