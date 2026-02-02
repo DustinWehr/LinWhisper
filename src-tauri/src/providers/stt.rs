@@ -92,25 +92,39 @@ impl SttProvider for WhisperCppProvider {
     }
 }
 
-/// STT provider for self-hosted whisper servers
-/// (e.g., Speaches, faster-whisper-server, LocalAI)
+/// STT provider for OpenAI-compatible APIs
 ///
-/// Uses the OpenAI-compatible /v1/audio/transcriptions API format.
-pub struct SelfHostedWhisperSttProvider {
+/// Works with:
+/// - Self-hosted servers (Speaches, faster-whisper-server, LocalAI)
+/// - OpenAI cloud API
+///
+/// Uses the /v1/audio/transcriptions endpoint format.
+pub struct OpenAiCompatibleSttProvider {
     base_url: String,
+    api_key: Option<String>,
     model: String,
+    name: String,
 }
 
-impl SelfHostedWhisperSttProvider {
-    /// Create a new self-hosted whisper STT provider
-    ///
-    /// Reads base URL from WHISPER_API_URL env var.
-    /// Example: WHISPER_API_URL=http://192.168.1.100:8000
-    pub fn new(model: String) -> Self {
-        let base_url = std::env::var("WHISPER_API_URL")
-            .unwrap_or_else(|_| "http://localhost:8000".to_string());
+impl OpenAiCompatibleSttProvider {
+    /// Create a new OpenAI-compatible STT provider
+    pub fn new(base_url: String, api_key: Option<String>, model: String, name: String) -> Self {
+        Self { base_url, api_key, model, name }
+    }
 
-        Self { base_url, model }
+    /// Create for self-hosted whisper server
+    pub fn self_hosted(base_url: String, model: String) -> Self {
+        Self::new(base_url, None, model, "Self-hosted Whisper".to_string())
+    }
+
+    /// Create for OpenAI cloud
+    pub fn openai_cloud(api_key: String, model: String) -> Self {
+        Self::new(
+            "https://api.openai.com".to_string(),
+            Some(api_key),
+            model,
+            "OpenAI Cloud".to_string(),
+        )
     }
 }
 
@@ -121,15 +135,13 @@ struct WhisperTranscriptionResponse {
 }
 
 #[async_trait]
-impl SttProvider for SelfHostedWhisperSttProvider {
+impl SttProvider for OpenAiCompatibleSttProvider {
     async fn transcribe(&self, samples: &[f32], language: Option<&str>) -> Result<String> {
-        // Convert f32 samples to WAV bytes
         let wav_data = samples_to_wav(samples)?;
 
         let client = reqwest::Client::new();
         let url = format!("{}/v1/audio/transcriptions", self.base_url);
 
-        // Build multipart form
         let file_part = multipart::Part::bytes(wav_data)
             .file_name("audio.wav")
             .mime_str("audio/wav")
@@ -143,39 +155,52 @@ impl SttProvider for SelfHostedWhisperSttProvider {
             form = form.text("language", lang.to_string());
         }
 
-        let response = client
+        log::info!("[{}] Sending transcription request to {}", self.name, url);
+
+        let mut request = client
             .post(&url)
             .multipart(form)
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(120));
+
+        // Add auth header if API key is present
+        if let Some(ref api_key) = self.api_key {
+            request = request.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        let response = request
             .send()
             .await
-            .map_err(|e| AppError::Transcription(format!("Request failed: {}", e)))?;
+            .map_err(|e| AppError::Transcription(format!("[{}] Request failed: {}", self.name, e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(AppError::Transcription(format!(
-                "API error ({}): {}",
-                status, body
+                "[{}] API error ({}): {}",
+                self.name, status, body
             )));
         }
 
         let result: WhisperTranscriptionResponse = response
             .json()
             .await
-            .map_err(|e| AppError::Transcription(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| AppError::Transcription(format!("[{}] Failed to parse response: {}", self.name, e)))?;
 
         Ok(result.text.trim().to_string())
     }
 
     fn name(&self) -> &str {
-        "Self-hosted Whisper"
+        &self.name
     }
 }
 
 /// Convert f32 audio samples to WAV format bytes
 fn samples_to_wav(samples: &[f32]) -> Result<Vec<u8>> {
     use std::io::Cursor;
+
+    // Constants for 16-bit signed integer PCM conversion
+    const I16_SAMPLE_MAX: f32 = i16::MAX as f32;
+    const I16_SAMPLE_MIN: f32 = i16::MIN as f32;
 
     let spec = hound::WavSpec {
         channels: 1,
@@ -190,7 +215,7 @@ fn samples_to_wav(samples: &[f32]) -> Result<Vec<u8>> {
             .map_err(|e| AppError::Transcription(format!("Failed to create WAV writer: {}", e)))?;
 
         for &sample in samples {
-            let amplitude = (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
+            let amplitude = (sample * I16_SAMPLE_MAX).clamp(I16_SAMPLE_MIN, I16_SAMPLE_MAX) as i16;
             writer.write_sample(amplitude)
                 .map_err(|e| AppError::Transcription(format!("Failed to write sample: {}", e)))?;
         }
@@ -259,6 +284,8 @@ pub async fn ensure_model(model_name: &str) -> Result<PathBuf> {
 pub async fn create_stt_provider(
     provider_type: &SttProviderType,
     model: &str,
+    api_key: Option<String>,
+    server_url: Option<String>,
 ) -> Result<Box<dyn SttProvider>> {
     match provider_type {
         SttProviderType::WhisperCpp => {
@@ -266,14 +293,24 @@ pub async fn create_stt_provider(
             let provider = WhisperCppProvider::new(model_path);
             Ok(Box::new(provider))
         }
-        SttProviderType::Deepgram => {
-            Err(AppError::Provider("Deepgram not yet implemented".to_string()))
+        SttProviderType::WhisperServer => {
+            // Self-hosted whisper server (Speaches, faster-whisper-server, etc.)
+            let base_url = server_url
+                .or_else(|| std::env::var("WHISPER_API_URL").ok())
+                .unwrap_or_else(|| "http://localhost:8000".to_string());
+            let provider = OpenAiCompatibleSttProvider::self_hosted(base_url, model.to_string());
+            Ok(Box::new(provider))
         }
         SttProviderType::OpenAI => {
-            // For self-hosted whisper servers (Speaches, faster-whisper-server, etc.)
-            // Set WHISPER_API_URL env var to point to your server
-            let provider = SelfHostedWhisperSttProvider::new(model.to_string());
+            // Cloud OpenAI Whisper API - requires API key
+            let key = api_key.ok_or_else(|| {
+                AppError::Provider("OpenAI STT requires an API key. Add it in Settings.".to_string())
+            })?;
+            let provider = OpenAiCompatibleSttProvider::openai_cloud(key, model.to_string());
             Ok(Box::new(provider))
+        }
+        SttProviderType::Deepgram => {
+            Err(AppError::Provider("Deepgram not yet implemented".to_string()))
         }
         SttProviderType::Custom(name) => {
             Err(AppError::Provider(format!("Unknown provider: {}", name)))

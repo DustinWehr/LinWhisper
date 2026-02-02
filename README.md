@@ -179,9 +179,6 @@ API keys for cloud providers (OpenAI, Anthropic) are stored securely in your sys
 # Override Ollama URL (for LLM post-processing)
 export OLLAMA_HOST=http://localhost:11434
 
-# Self-hosted whisper server URL (see "Self-Hosted GPU Transcription" below)
-export WHISPER_API_URL=http://192.168.1.100:8000
-
 # Enable debug logging
 export RUST_LOG=whispertray=debug
 ```
@@ -205,14 +202,16 @@ You can offload transcription to a self-hosted whisper server running on a machi
      --gpus=all ghcr.io/speaches-ai/speaches:latest-cuda
    ```
 
-2. Set the environment variable before launching WhisperTray:
-   ```bash
-   export WHISPER_API_URL=http://YOUR_GPU_SERVER:8000
-   ```
+2. In WhisperTray Settings:
+   - Select **"Self-hosted Whisper Server"** as the STT provider
+   - Enter your server URL (e.g., `http://192.168.1.100:8000`)
+   - Click **Test** to verify the connection
+   - Enter a model name supported by your server (e.g., `distil-whisper/distil-large-v3.5-ct2`)
 
-3. In WhisperTray settings, select "OpenAI Whisper API" as the STT provider and choose a model supported by your server (e.g., `distil-whisper/distil-large-v3.5-ct2`).
+### Cloud STT Providers
 
-> **Note:** The "OpenAI Whisper API" provider currently only supports self-hosted servers. Cloud OpenAI transcription is not yet implemented.
+- **OpenAI Cloud**: Requires an OpenAI API key (add in Settings under API Keys). Uses OpenAI's cloud-based Whisper API.
+- **Deepgram**: Not yet implemented.
 
 ## Wayland vs X11
 
