@@ -57,6 +57,9 @@ pub struct Settings {
     /// URL for self-hosted whisper server (used when stt_provider is WhisperServer)
     #[serde(default)]
     pub whisper_server_url: Option<String>,
+    /// URL for Ollama server (used when llm_provider is Ollama)
+    #[serde(default)]
+    pub ollama_url: Option<String>,
 }
 
 impl Default for Settings {
@@ -72,6 +75,7 @@ impl Default for Settings {
             context_awareness: false,
             language: "en".to_string(),
             whisper_server_url: None,
+            ollama_url: None,
         }
     }
 }
@@ -347,6 +351,7 @@ impl AppState {
             &mode.llm_provider,
             &mode.llm_model,
             api_key.as_deref(),
+            self.settings.ollama_url.clone(),
         )?;
 
         let prompt = crate::modes::render_prompt(

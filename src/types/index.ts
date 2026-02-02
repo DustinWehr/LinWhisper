@@ -59,6 +59,7 @@ export interface Settings {
   context_awareness: boolean;
   language: string;
   whisper_server_url?: string;
+  ollama_url?: string;
 }
 
 // Recording status response

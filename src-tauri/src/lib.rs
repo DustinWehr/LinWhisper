@@ -98,6 +98,7 @@ pub fn run() {
             commands::delete_api_key,
             commands::has_api_key,
             commands::test_whisper_connection,
+            commands::test_ollama_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

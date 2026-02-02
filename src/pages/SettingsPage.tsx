@@ -19,6 +19,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
+  const [testingOllama, setTestingOllama] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<"idle" | "success" | "error">("idle");
 
   useEffect(() => {
     if (settings) {
@@ -77,6 +79,23 @@ export default function SettingsPage() {
       setConnectionStatus("error");
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  const handleTestOllama = async () => {
+    const url = localSettings?.ollama_url;
+    if (!url) return;
+
+    setTestingOllama(true);
+    setOllamaStatus("idle");
+
+    try {
+      const success = await invoke<boolean>("test_ollama_connection", { url });
+      setOllamaStatus(success ? "success" : "error");
+    } catch {
+      setOllamaStatus("error");
+    } finally {
+      setTestingOllama(false);
     }
   };
 
@@ -294,6 +313,46 @@ export default function SettingsPage() {
               <option value="anthropic">Anthropic Claude</option>
             </select>
           </div>
+
+          {/* Ollama URL - shown when ollama is selected */}
+          {localSettings.default_llm_provider === "ollama" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Ollama Server URL
+                {ollamaStatus === "success" && (
+                  <span className="ml-2 text-green-400 text-xs">✓ Connected</span>
+                )}
+                {ollamaStatus === "error" && (
+                  <span className="ml-2 text-red-400 text-xs">✗ Connection failed</span>
+                )}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={localSettings.ollama_url || ""}
+                  onChange={(e) => {
+                    setLocalSettings({
+                      ...localSettings,
+                      ollama_url: e.target.value || undefined,
+                    });
+                    setOllamaStatus("idle");
+                  }}
+                  placeholder="http://localhost:11434"
+                  className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
+                />
+                <button
+                  onClick={handleTestOllama}
+                  disabled={testingOllama || !localSettings.ollama_url}
+                  className="px-3 py-2 bg-gray-600 text-white rounded-lg text-sm hover:bg-gray-500 disabled:opacity-50"
+                >
+                  {testingOllama ? "Testing..." : "Test"}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Leave empty for localhost:11434, or set to LAN IP (e.g., http://192.168.1.100:11434)
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">

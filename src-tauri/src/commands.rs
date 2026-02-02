@@ -252,6 +252,7 @@ pub async fn reprocess_history_item(
         .ok_or_else(|| "Mode not found".to_string())?;
 
     let language = state_guard.settings.language.clone();
+    let ollama_url = state_guard.settings.ollama_url.clone();
     let api_key = state_guard.get_api_key(&mode.llm_provider).map_err(|e| e.to_string())?;
     drop(state_guard);
 
@@ -261,6 +262,7 @@ pub async fn reprocess_history_item(
             &mode.llm_provider,
             &mode.llm_model,
             api_key.as_deref(),
+            ollama_url,
         )
         .map_err(|e| e.to_string())?;
 
@@ -442,6 +444,19 @@ pub async fn test_whisper_connection(url: String) -> Result<bool, String> {
     let client = reqwest::Client::new();
     client
         .get(format!("{}/v1/models", url))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .map_err(|e| e.to_string())
+}
+
+/// Test connection to an Ollama server
+#[tauri::command]
+pub async fn test_ollama_connection(url: String) -> Result<bool, String> {
+    let client = reqwest::Client::new();
+    client
+        .get(format!("{}/api/tags", url))
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
